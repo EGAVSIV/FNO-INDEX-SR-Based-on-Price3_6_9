@@ -76,7 +76,7 @@ def price_cycles(close_price: float, steps=[30, 60, 90, 120, 150]):
 # ------------------ STREAMLIT UI ------------------ #
 st.title("📈 NSE Price Cycle Checker (Weekly-based)")
 
-symbol = st.selectbox("Select Symbol:", SYMBOLS)
+symbol = st.selectbox("Select Symbol:", symbols)
 
 yf_tkr = yahoo_ticker(symbol)
 st.write("→ Yahoo Ticker:", yf_tkr)
