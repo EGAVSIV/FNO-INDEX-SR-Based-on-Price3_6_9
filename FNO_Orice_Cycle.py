@@ -109,8 +109,8 @@ if mode == "Single Symbol":
     # Price-cycle steps selection (as before)
     presets = {
         "Default 30-60-90-120-150": [30,60,90,120,150],
-        "Short 3-6-9": [3,6,9],
-        "Long 300-600-900": [300,600,900],
+        "Short 3-6-9": [3,6,9,12,15],
+        "Long 300-600-900": [300,600,900,1200,1500],
         "Custom": None
     }
     choice = st.selectbox("Cycle Step Preset", list(presets.keys()))
