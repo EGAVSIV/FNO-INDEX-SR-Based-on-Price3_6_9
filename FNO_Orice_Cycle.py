@@ -16,7 +16,7 @@ def set_bg_image(image_file):
     css = f"""
     <style>
     [data-testid="stAppViewContainer"] > .main {{
-        background-image: url("data:image/png;base64,{b64}");
+        background-image: url("data:SMB2/png;base64,{b64}");
         background-size: cover;
         background-attachment: fixed;
     }}
