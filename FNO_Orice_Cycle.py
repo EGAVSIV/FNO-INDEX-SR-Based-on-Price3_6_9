@@ -256,6 +256,7 @@ if mode == "Single Symbol":
         "Default 30-60-90-120-150": [30, 60, 90, 120, 150],
         "Short 3-6-9-12-15": [3, 6, 9, 12, 15],
         "Long 300-600-900-1200-1500": [300, 600, 900, 1200, 1500],
+        "Micro .3-.6-.9-1.2-1.5": [0.3, 0.6, 0.9, 1.2, 1.5],
         "Custom": None
     }
     choice = st.selectbox("Cycle Step Preset", list(presets.keys()))
