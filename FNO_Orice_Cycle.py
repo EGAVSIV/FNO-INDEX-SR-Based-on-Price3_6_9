@@ -7,7 +7,7 @@ from datetime import datetime, time
 import base64
 
 # ----------------------  CONFIG  ---------------------- #
-st.set_page_config(page_title="NSE Price Cycle + ATRP Scanner", layout="wide")
+st.set_page_config(page_title="NSE Price Cycle & ATRP Scanner_By Rao_Gs", layout="wide")
 
 # Function to set background image
 def set_bg_image(image_file):
