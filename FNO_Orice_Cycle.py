@@ -1,13 +1,18 @@
-import streamlit as st
-import datetime as dt
-from datetime import datetime, time
-import yfinance as yf
-import pandas as pd
+# app_price_cycle.py
 
-# ------------------ CONFIGURE SYMBOL LIST ------------------ #
-# Put all your FNO symbols + indices here.
-# For NSE equities, add ".NS"
-symbols = ['PIDILITIND','PERSISTENT','PETRONET','LTIM','INDIANB','INDHOTEL','HFCL','HAVELLS','BRITANNIA','BSE','CAMS','CANBK','CDSL','CGPOWER','CHOLAFIN','CIPLA','COALINDIA','COFORGE','COLPAL','CONCOR','CROMPTON','CUMMINSIND','CYIENT','DABUR',
+import streamlit as st
+from tvDatafeed import TvDatafeed, Interval
+import pandas as pd
+from datetime import datetime, time
+import numpy as np
+
+# ------------------------ UI Setup ------------------------
+st.set_page_config(page_title="NSE / Stock Price Cycle Calculator", layout="wide")
+st.title("📊 Weekly Price Cycle Calculator (3-6-9 / Custom Steps)")
+
+# ------------------------ SYMBOL LIST ------------------------
+# Add your F&O / common NSE stocks & indices here
+SYMBOLS = ['PIDILITIND','PERSISTENT','PETRONET','LTIM','INDIANB','INDHOTEL','HFCL','HAVELLS','BRITANNIA','BSE','CAMS','CANBK','CDSL','CGPOWER','CHOLAFIN','CIPLA','COALINDIA','COFORGE','COLPAL','CONCOR','CROMPTON','CUMMINSIND','CYIENT','DABUR',
            'DALBHARAT','DELHIVERY','DIVISLAB','DIXON','DLF','DMART','DRREDDY','EICHERMOT','ETERNAL','EXIDEIND','FEDERALBNK','FORTIS','GAIL','GLENMARK','GMRAIRPORT','GODREJCP','GODREJPROP','GRASIM','HAL',
            'HDFCAMC','HDFCBANK','HDFCLIFE','HEROMOTOCO','HINDALCO','HINDPETRO','HINDUNILVR','HINDZINC','HUDCO','ICICIBANK','ICICIGI','ICICIPRULI','IDEA','IDFCFIRSTB','IEX','IGL',
            'IIFL','INDIGO','INDUSINDBK','INDUSTOWER','INFY','INOXWIND','IOC','IRCTC','IREDA','IRFC','ITC','JINDALSTEL','JIOFIN','JSWENERGY','JSWSTEEL','JUBLFOOD','KALYANKJIL','KAYNES',
@@ -20,86 +25,86 @@ symbols = ['PIDILITIND','PERSISTENT','PETRONET','LTIM','INDIANB','INDHOTEL','HFC
            'ASHOKLEY','ASIANPAINT','ASTRAL','AUBANK','AUROPHARMA','AXISBANK','BAJAJ_AUTO','BAJAJFINSV','BAJFINANCE','BANDHANBNK','BANKBARODA','BANKINDIA','BDL','BEL','BHARATFORG','BHARTIARTL','BHEL',
            'BIOCON','BLUESTARCO','BOSCHLTD','BPCL']
 
-# Map your display names to Yahoo tickers
-def yahoo_ticker(symbol: str):
-    # For known index
-    if symbol.upper() == "NIFTY 50":
-        return "^NSEI"
-    # For other indices like BANKNIFTY/FINNIFTY — you'll need proper Yahoo ticker or external data source.
-    # As fallback treat them as stocks
-    return symbol.upper() + ".NS"
+symbol = st.selectbox("Select Symbol / Index", SYMBOLS)
 
+# ------------------------ Fetch Data Function ------------------------
+tv = TvDatafeed()  # you may optionally supply username/password if needed
 
-# ------------------ WEEKLY CLOSE HANDLING ------------------ #
-def get_weekly_close_safe(ticker: str) -> float | None:
+def get_weekly_close(symbol: str, exchange: str = "NSE"):
+    """
+    Fetch last 2 weekly bars for symbol from TradingView via tvDatafeed.
+    Decide whether to use the latest or previous weekly close based on current day/time.
+    """
     try:
-        df = yf.download(ticker, period="2y", interval="1wk", progress=False)
+        df = tv.get_hist(symbol=symbol, exchange=exchange,
+                         interval=Interval.in_weekly, n_bars=2)
     except Exception as e:
-        return None
+        return None, None
 
-    if df is None or df.empty:
-        return None
+    if df is None or df.empty or "close" not in df.columns:
+        return None, None
 
-    # Standard yfinance with auto_adjust=True may only give Open/High/Low/Close/Volume
-    # so column "Close" must exist — check that
-    if "Close" not in df.columns:
-        # no close price → can't compute weekly close
-        return None
-
-    df = df.rename(columns={"Close": "close"})
     df = df.dropna(subset=["close"])
-
     if len(df) < 2:
-        return None
+        return None, None
 
-    last_close = df["close"].iloc[-1]
-    prev_close = df["close"].iloc[-2]
+    last_close = float(df["close"].iloc[-1])
+    prev_close = float(df["close"].iloc[-2])
+    last_date = df.index[-1]
+    prev_date = df.index[-2]
 
     now = datetime.now()
 
+    # If Friday after 15:30, or weekend => use last close
     if (now.weekday() == 4 and now.time() >= time(15, 30)) or now.weekday() in [5, 6]:
-        return float(last_close)
-    return float(prev_close)
+        return last_close, last_date
+    # If Monday before 9:00, or Tue–Thu, or Fri before 15:30 => use previous close
+    return prev_close, prev_date
 
-
-
-# ------------------ PRICE CYCLE CALC ------------------ #
+# ------------------------ Calculate Price Cycles ------------------------
 def price_cycles(close_price: float, steps=[30, 60, 90, 120, 150]):
-    res = []
-    sup = []
-    base = close_price
+    resist = []
+    support = []
+    base_up = close_price
+    base_down = close_price
     for s in steps:
-        base_up = (res[-1] if res else close_price) + s
-        res.append(base_up)
+        base_up += s
+        resist.append(base_up)
+        base_down -= s
+        support.append(base_down)
+    return resist, support
 
-    base = close_price
-    for s in steps:
-        base_down = (sup[-1] if sup else close_price) - s
-        sup.append(base_down)
+# ------------------------ Main Logic ------------------------
+weekly_close, used_date = get_weekly_close(symbol)
 
-    return res, sup
-
-# ------------------ STREAMLIT UI ------------------ #
-st.title("📈 NSE Price Cycle Checker (Weekly-based)")
-
-symbol = st.selectbox("Select Symbol:", symbols)
-
-yf_tkr = yahoo_ticker(symbol)
-st.write("→ Yahoo Ticker:", yf_tkr)
-
-weekly_close = get_weekly_close_safe(yf_tkr)
 if weekly_close is None:
-    st.error("❌ Could not fetch weekly close for symbol — data unavailable or ticker invalid.")
+    st.error("❌ Could not fetch weekly close for the selected symbol. Data may be unavailable or symbol incorrect.")
     st.stop()
 
-st.write("Weekly Close Used:", weekly_close)
+st.write("**Weekly Close used:**", weekly_close, "  (bar date:", used_date.date(), ")")
 
-res_levels, sup_levels = price_cycles(weekly_close)
+# Let user optionally choose custom steps
+custom = st.checkbox("Use custom steps instead of default [30,60,90,120,150]")
+if custom:
+    user_steps_input = st.text_input("Enter comma-separated step values (e.g. 25,50,75)", "30,60,90,120,150")
+    try:
+        steps = [int(x.strip()) for x in user_steps_input.split(",") if x.strip()]
+    except:
+        st.error("Invalid steps input. Please enter comma-separated integers.")
+        st.stop()
+else:
+    steps = [30, 60, 90, 120, 150]
 
-df_levels = pd.DataFrame({
+res_levels, sup_levels = price_cycles(weekly_close, steps)
+
+df_cycles = pd.DataFrame({
     "Resistance": res_levels,
     "Support": sup_levels
 })
 
-st.subheader("Calculated Price Cycles (Levels)")
-st.dataframe(df_levels)
+st.subheader("📈 Price Cycle Levels")
+st.dataframe(df_cycles)
+
+# Optionally download data
+csv = df_cycles.to_csv(index=False)
+st.download_button("Download Levels as CSV", data=csv, file_name=f"{symbol}_price_cycles.csv", mime="text/csv")
