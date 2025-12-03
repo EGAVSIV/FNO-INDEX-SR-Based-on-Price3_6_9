@@ -204,26 +204,34 @@ if mode == "Single Symbol":
 else:
     st.write("## 🔍 ATR% Scan — High Volatility Stocks")
 
-    period = st.number_input("ATR lookback (days):", min_value=5, max_value=60, value=10, step=1)
-    top_n = st.number_input("Show Top N by ATR%:", min_value=5, max_value=len(SYMBOLS), value=20, step=5)
+    period = st.number_input("ATR lookback (days)", min_value=5, max_value=60, value=10, step=1)
+    top_n = st.number_input("Top N volatile stocks to show", min_value=5, max_value=len(SYMBOLS), value=20, step=5)
 
     results = []
     for s in SYMBOLS:
-        daily = fetch_daily(s)
-        if daily is None:
+        df = fetch_daily(s)
+        if df is None or df.shape[0] < period + 5:
             continue
         try:
-            last = float(daily["close"].iloc[-1])
-            atr = get_atr_with_talib(daily_df, period=10)
-            atrp = (atr / last) * 100
-            results.append((s, last, atr, atrp))
+            last_close = float(df["close"].iloc[-1])
+            atr = get_atr_with_talib(df, period=period)
+            if atr is None or np.isnan(atr):
+                continue
+            atrp = (atr / last_close) * 100
+            results.append((s, last_close, atr, atrp))
+            
         except Exception:
             continue
 
-    df_scan = pd.DataFrame(results, columns=["Symbol","Last Close","ATR","ATR%"])
+    if results:
+    df_scan = pd.DataFrame(results, columns=["Symbol", "Last Close", "ATR", "ATR%"])
     df_scan = df_scan.sort_values("ATR%", ascending=False).head(top_n).reset_index(drop=True)
     st.subheader(f"Top {top_n} Symbols by ATR%")
     st.dataframe(df_scan)
     csv = df_scan.to_csv(index=False)
     st.download_button("Download ATR% Scan CSV", data=csv,
                        file_name="atr_percent_scan.csv", mime="text/csv")
+else:
+    st.write("No symbols met criteria (data unavailable or insufficient history).")
+
+
