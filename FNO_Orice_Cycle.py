@@ -1,14 +1,17 @@
 import streamlit as st
 from tvDatafeed import TvDatafeed, Interval
 import pandas as pd
-from datetime import datetime, time
 import numpy as np
+from datetime import datetime, time
 
-# ------------------ STREAMLIT CONFIG ------------------ #
-st.set_page_config(page_title="NSE / Stock Price Cycle + ATR", layout="wide")
-st.title("📈 Weekly Price Cycle + Daily ATR Calculator")
+# --- CONFIG ---
+st.set_page_config(page_title="NSE Price Cycle + ATRP Scanner", layout="wide")
+st.title("📈 Weekly Price Cycles + ATRP (Volatility) + Scanner")
 
-# ------------------ SYMBOL LIST ------------------ #
+tv = TvDatafeed()  # supply credentials if required
+
+# --- SYMBOL UNIVERSE ---
+# Add all F&O / stocks / indices you need
 SYMBOLS = ['NIFTY','BANKNIFTY','CNXFINANCE','CNXMIDCAP','NIFTYJR','360ONE','ABB','ABCAPITAL','ADANIENSOL','ADANIENT','ADANIGREEN','ADANIPORTS','ALKEM','AMBER','AMBUJACEM','ANGELONE','APLAPOLLO','APOLLOHOSP',
            'ASHOKLEY','ASIANPAINT','ASTRAL','AUBANK','AUROPHARMA','AXISBANK','BAJAJ_AUTO','BAJAJFINSV','BRITANNIA','INDIANB','INDHOTEL','HFCL','HAVELLS','BAJFINANCE','BANDHANBNK','BANKBARODA','BANKINDIA','BDL','BEL','BHARATFORG','BHARTIARTL','BHEL',
            'BIOCON','BLUESTARCO','BOSCHLTD','BPCL''BSE','CAMS','CANBK','CDSL','CGPOWER','CHOLAFIN','CIPLA','COALINDIA','COFORGE','COLPAL','CONCOR','CROMPTON','CUMMINSIND','CYIENT','DABUR',
@@ -22,67 +25,42 @@ SYMBOLS = ['NIFTY','BANKNIFTY','CNXFINANCE','CNXMIDCAP','NIFTYJR','360ONE','ABB'
            'TATAELXSI','TATAMOTORS','TATAPOWER','TATASTEEL','TATATECH','TCS','TECHM','TIINDIA','TITAGARH','TITAN','TORNTPHARM','TORNTPOWER','TRENT','TVSMOTOR','ULTRACEMCO','UNIONBANK','UNITDSPR',
            'UNOMINDA','UPL','VBL','VEDL','VOLTAS','WIPRO','YESBANK','ZYDUSLIFE']
 
-symbol = st.selectbox("Select Symbol / Index", SYMBOLS)
-
-tv = TvDatafeed()  # optionally pass credentials for private data (if needed)
-
-# ------------------ FUNCTIONS ------------------ #
-
+# --- FUNCTIONS ---
 def get_weekly_close(symbol: str, exchange: str = "NSE"):
-    """
-    Fetch last 2 weekly bars for symbol from TradingView via tvDatafeed.
-    Decide whether to use the latest or previous weekly close based on current day/time.
-    """
     try:
         df = tv.get_hist(symbol=symbol, exchange=exchange,
                          interval=Interval.in_weekly, n_bars=2)
-    except Exception as e:
+    except Exception:
         return None, None
-
     if df is None or df.empty or "close" not in df.columns:
         return None, None
-
     df = df.dropna(subset=["close"])
     if len(df) < 2:
         return None, None
-
-    last_close = float(df["close"].iloc[-1])
-    prev_close = float(df["close"].iloc[-2])
-    last_date = df.index[-1]
-    prev_date = df.index[-2]
-
+    last = float(df["close"].iloc[-1])
+    prev = float(df["close"].iloc[-2])
     now = datetime.now()
+    if (now.weekday()==4 and now.time() >= time(15,30)) or now.weekday() in (5,6):
+        return last, df.index[-1]
+    return prev, df.index[-2]
 
-    # If Friday after 15:30 IST, or weekend → weekly candle complete → use last_close
-    if (now.weekday() == 4 and now.time() >= time(15, 30)) or now.weekday() in [5, 6]:
-        return last_close, last_date
-    # Otherwise (Mon–Thu, or Fri before 15:30) → use previous close
-    return prev_close, prev_date
-
-def get_daily_data(symbol: str, exchange: str = "NSE", n_bars: int = 50):
-    """
-    Fetch daily bars for symbol to compute ATR. Returns pandas DataFrame or None.
-    """
+def fetch_daily(symbol: str, exchange: str = "NSE", bars: int = 50):
     try:
         df = tv.get_hist(symbol=symbol, exchange=exchange,
-                         interval=Interval.in_daily, n_bars=n_bars)
-    except Exception as e:
+                         interval=Interval.in_daily, n_bars=bars)
+    except Exception:
         return None
     if df is None or df.empty:
         return None
-    if not all(col in df.columns for col in ["open", "high", "low", "close"]):
+    required = {"open","high","low","close"}
+    if not required.issubset(df.columns):
         return None
-    df = df.dropna(subset=["open", "high", "low", "close"])
-    if df.shape[0] < n_bars // 2:
-        # not enough data
+    df = df.dropna(subset=list(required))
+    if df.shape[0] < bars//2:
         return None
     return df
 
-def compute_atr(df: pd.DataFrame, period: int = 10) -> float | None:
-    """
-    Compute ATR (Average True Range) over last 'period' days.
-    Returns ATR value (float) or None if not enough data.
-    """
+def compute_atr(df: pd.DataFrame, period: int = 10) -> float:
     df2 = df.copy()
     df2["prev_close"] = df2["close"].shift(1)
     df2 = df2.dropna()
@@ -90,87 +68,90 @@ def compute_atr(df: pd.DataFrame, period: int = 10) -> float | None:
     tr2 = (df2["high"] - df2["prev_close"]).abs()
     tr3 = (df2["low"] - df2["prev_close"]).abs()
     df2["TR"] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-    if len(df2) < period:
-        return None
-    atr = df2["TR"].rolling(period).mean().iloc[-1]
-    return float(atr)
+    return float(df2["TR"].rolling(window=period).mean().iloc[-1])
 
 def price_cycles(close_price: float, steps):
-    resist = []
-    support = []
-    base_up = close_price
-    base_down = close_price
+    resist = []; support = []
+    up = close_price; down = close_price
     for s in steps:
-        base_up += s
-        resist.append(base_up)
-        base_down -= s
-        support.append(base_down)
+        up += s; resist.append(up)
+        down -= s; support.append(down)
     return resist, support
 
-# ------------------ FETCH DATA ------------------ #
-weekly_close, used_date = get_weekly_close(symbol)
-if weekly_close is None:
-    st.error("❌ Could not fetch weekly close for the selected symbol. Data may be unavailable or symbol incorrect.")
-    st.stop()
+# --- APP MODE: single symbol or scan filter ---
+mode = st.radio("Mode:", ["Single Symbol", "Scan Universe (by ATR%)"])
 
-daily_df = get_daily_data(symbol)
-if daily_df is None:
-    st.warning("⚠ Could not fetch sufficient daily data for ATR calculation.")
-    atr_value = None
-else:
-    atr_value = compute_atr(daily_df, period=10)
+if mode == "Single Symbol":
+    symbol = st.selectbox("Select Symbol", SYMBOLS)
+    weekly_close, wdate = get_weekly_close(symbol)
+    if weekly_close is None:
+        st.error("Cannot fetch weekly close for " + symbol)
+        st.stop()
 
-last_close_price = float(daily_df["close"].iloc[-1]) if daily_df is not None else None
-
-# ------------------ DISPLAY TOP INFO ------------------ #
-info_col1, info_col2 = st.columns(2)
-with info_col1:
-    st.markdown(f"**Symbol:** {symbol}")
-    st.markdown(f"**Weekly Close used:** {weekly_close:.2f}  (bar date: {used_date.date()})")
-    if last_close_price is not None:
-        st.markdown(f"**Last Close (Daily):** {last_close_price:.2f}")
-with info_col2:
-    if atr_value is not None:
-        st.markdown(f"**ATR (10-day):** {atr_value:.2f}")
+    daily_df = fetch_daily(symbol)
+    if daily_df is None:
+        st.warning("Not enough daily data for ATR/ATRP calculation.")
+        atr = None
     else:
-        st.markdown("**ATR (10-day):** —")
+        atr = compute_atr(daily_df, period=10)
 
-st.markdown("---")
+    last_close = float(daily_df["close"].iloc[-1]) if daily_df is not None else None
 
-# ------------------ STEP SELECTION FOR PRICE CYCLES ------------------ #
-preset_dict = {
-    "Default (30-60-90-120-150)": [30, 60, 90, 120, 150],
-    "Short (3-6-9-12-15)": [3, 6, 9, 12, 15],
-    "Long (300-600-900-1200-1500)": [300, 600, 900, 1200, 1500],
-    "Custom": None
-}
+    st.markdown(f"**Symbol:** {symbol}")
+    st.markdown(f"**Weekly Close (used):** {weekly_close:.2f}  (date {wdate.date()})")
+    if last_close:
+        st.markdown(f"**Last Close (Daily):** {last_close:.2f}")
+    if atr:
+        st.markdown(f"**ATR(10):** {atr:.2f}")
+        atrp = (atr / last_close) * 100 if last_close else None
+        st.markdown(f"**ATR% (ATR / Close * 100):** {atrp:.2f}%")
 
-step_choice = st.selectbox("Choose Step Set for Price Cycles", list(preset_dict.keys()))
+    # Price-cycle steps selection (as before)
+    presets = {
+        "Default 30-60-90-120-150": [30,60,90,120,150],
+        "Short 3-6-9": [3,6,9],
+        "Long 300-600-900": [300,600,900],
+        "Custom": None
+    }
+    choice = st.selectbox("Cycle Step Preset", list(presets.keys()))
+    if choice == "Custom":
+        user = st.text_input("Enter comma-separated steps", "30,60,90")
+        try:
+            steps = [int(x.strip()) for x in user.split(",") if x.strip()]
+        except:
+            st.error("Invalid custom steps.")
+            st.stop()
+    else:
+        steps = presets[choice]
 
-if step_choice == "Custom":
-    custom_input = st.text_input("Enter comma-separated cycle steps (e.g. 25,50,75,100)", "30,60,90,120,150")
-    try:
-        steps = [int(x.strip()) for x in custom_input.split(",") if x.strip()]
-    except:
-        st.error("Invalid custom steps. Please enter comma-separated integers.")
-        st.stop()
-    if not steps:
-        st.error("Please enter at least one integer step.")
-        st.stop()
-else:
-    steps = preset_dict[step_choice]
+    res, sup = price_cycles(weekly_close, steps)
+    df_cycles = pd.DataFrame({"Resistance": res, "Support": sup})
+    st.subheader("Price Cycle Levels")
+    st.dataframe(df_cycles)
 
-# ------------------ CALCULATE & SHOW PRICE CYCLES ------------------ #
-res_levels, sup_levels = price_cycles(weekly_close, steps)
+else:  # Scan Universe mode
+    st.write("This will scan all symbols and show those with highest ATR% (top 20 by default)")
 
-df_cycles = pd.DataFrame({
-    "Resistance": res_levels,
-    "Support": sup_levels
-})
+    period = st.number_input("ATR lookback period (days)", min_value=5, max_value=50, value=10, step=1)
+    top_n = st.number_input("Top N volatile stocks to show", min_value=5, max_value=100, value=20, step=1)
 
-st.subheader("🔹 Price Cycle Levels")
-st.dataframe(df_cycles)
+    results = []
+    for s in SYMBOLS:
+        daily = fetch_daily(s)
+        if daily is None:
+            continue
+        try:
+            atr = compute_atr(daily, period=period)
+            last = float(daily["close"].iloc[-1])
+            atrp = (atr / last) * 100
+            results.append((s, last, atr, atrp))
+        except Exception:
+            continue
 
-csv = df_cycles.to_csv(index=False)
-st.download_button("Download Levels as CSV", data=csv,
-                   file_name=f"{symbol}_price_cycles.csv", mime="text/csv")
+    df_scan = pd.DataFrame(results, columns=["Symbol","Last Close","ATR","ATR%"])
+    df_scan = df_scan.sort_values("ATR%", ascending=False).head(top_n).reset_index(drop=True)
+    st.subheader(f"Top {top_n} by ATR%")
+    st.dataframe(df_scan)
+    csv = df_scan.to_csv(index=False)
+    st.download_button("Download scan results CSV", data=csv,
+                       file_name="atr_percent_scan.csv", mime="text/csv")
