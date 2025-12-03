@@ -95,6 +95,39 @@ def price_cycles(close_price: float, steps):
         sup.append(down)
     return res, sup
 
+import streamlit as st
+import base64
+
+def set_background(image_path: str):
+    try:
+        with open(image_path, "rb") as f:
+            img_data = f.read()
+        b64 = base64.b64encode(img_data).decode()
+    except Exception as e:
+        st.error(f"Background image load error: {e}")
+        return
+
+    css = f"""
+    <style>
+    /* Main page background */
+    [data-testid="stAppViewContainer"] > .main {{
+        background-image: url("data:image/png;base64,{b64}");
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+    }}
+    /* Transparent header so background shows through */
+    .css-18e3th9.ehxs19n2 {{
+        background-color: rgba(0,0,0,0) !important;
+    }}
+    </style>
+    """
+    st.markdown(css, unsafe_allow_html=True)
+
+# Call once at start
+set_background("Image.jpg")
+
+
 # ------------------- APP LOGIC ------------------- #
 mode = st.radio("Mode:", ["Single Symbol", "Scan Universe (by ATR%)"])
 
