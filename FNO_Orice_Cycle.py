@@ -222,8 +222,7 @@ else:
             
         except Exception:
             continue
-
-    if results:
+if results:
     df_scan = pd.DataFrame(results, columns=["Symbol", "Last Close", "ATR", "ATR%"])
     df_scan = df_scan.sort_values("ATR%", ascending=False).head(top_n).reset_index(drop=True)
     st.subheader(f"Top {top_n} Symbols by ATR%")
