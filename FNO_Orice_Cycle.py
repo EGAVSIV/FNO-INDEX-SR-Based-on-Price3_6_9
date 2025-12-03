@@ -25,7 +25,7 @@ def set_bg_image(image_file):
     st.markdown(css, unsafe_allow_html=True)
 
 # Call this — ensure Image.jpg (or png) is present in same folder
-set_bg_image("Image.jpg")
+set_bg_image("LG1.jpg")
 
 st.title("📈 Price Cycle + ATRP Scanner with Styled Output")
 
