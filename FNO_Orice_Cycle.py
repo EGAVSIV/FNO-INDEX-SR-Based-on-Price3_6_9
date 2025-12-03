@@ -1,6 +1,7 @@
 import streamlit as st
 from tvDatafeed import TvDatafeed, Interval
 import pandas as pd
+import talib as ta
 import numpy as np
 from datetime import datetime, time
 import base64
@@ -79,16 +80,21 @@ def fetch_daily(symbol: str, exchange: str = "NSE", bars: int = 50):
     df = df.dropna(subset=["open","high","low","close"])
     return df
 
-def compute_atr(df: pd.DataFrame, period: int = 10) -> float:
-    df2 = df.copy()
-    df2["prev_close"] = df2["close"].shift(1)
-    df2 = df2.dropna()
-    tr1 = df2["high"] - df2["low"]
-    tr2 = (df2["high"] - df2["prev_close"]).abs()
-    tr3 = (df2["low"] - df2["prev_close"]).abs()
-    df2["TR"] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-    atr = df2["TR"].rolling(window=period).mean().iloc[-1]
+import talib as ta
+
+def get_atr_with_talib(daily_df, period=10):
+    highs  = daily_df["high"].values
+    lows   = daily_df["low"].values
+    closes = daily_df["close"].values
+
+    atr_array = ta.ATR(highs, lows, closes, timeperiod=period)
+    # the array may contain NaNs at start — take last valid
+    atr = atr_array[-1]
+    if np.isnan(atr):
+        # fallback or warning
+        return None
     return float(atr)
+
 
 def price_cycles(close_price: float, steps):
     res = []
@@ -208,7 +214,7 @@ else:
             continue
         try:
             last = float(daily["close"].iloc[-1])
-            atr = compute_atr(daily, period=period)
+            atr = get_atr_with_talib(daily_df, period=10)
             atrp = (atr / last) * 100
             results.append((s, last, atr, atrp))
         except Exception:
