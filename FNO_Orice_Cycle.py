@@ -102,8 +102,7 @@ def price_cycles(close_price: float, steps):
         sup.append(down)
     return res, sup
 
-import streamlit as st
-import base64
+
 
 def set_background(image_path: str):
     try:
