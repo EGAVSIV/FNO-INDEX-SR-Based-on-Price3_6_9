@@ -57,7 +57,7 @@ st.write("Weekly Close used:", weekly_close, "  (bar date:", used_date.date(),
 # --- Step-set dropdown + custom option ---
 preset_label = st.selectbox(
     "Choose step-set for price cycles",
-    ("30,60,90,120,150", "300,600,900,1200,1500", "Custom..."),
+    ("3,6,9,12,15","30,60,90,120,150", "300,600,900,1200,1500", "Custom..."),
 )
 
 if preset_label == "Custom...":
