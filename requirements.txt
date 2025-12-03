@@ -4,5 +4,6 @@ numpy
 tradingview-datafeed
 ta-lib
 matplotlib
+fpdf
 
 
