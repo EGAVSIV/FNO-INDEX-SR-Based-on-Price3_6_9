@@ -22,7 +22,7 @@ def set_page_bg(image_file):
     st.markdown(page_bg_css, unsafe_allow_html=True)
 
 # call this at top — make sure you have 'background.jpg' in same folder
-set_page_bg("Image.jpg")
+set_page_bg("LG1.jpg")
 
 # --- PAGE HEADER ---
 st.set_page_config(layout="wide")
