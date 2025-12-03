@@ -96,7 +96,7 @@ SYMBOLS = [
     'WIPRO','YESBANK','ZYDUSLIFE'
 ]
 
-# ------------------- HELPER FUNCTIONS ------------------- #
+# ==================== PRICE FUNCTIONS ==================== #
 def get_weekly_close(symbol: str, exchange: str = "NSE"):
     try:
         df = tv.get_hist(symbol=symbol, exchange=exchange,
@@ -111,7 +111,6 @@ def get_weekly_close(symbol: str, exchange: str = "NSE"):
     last = float(df["close"].iloc[-1])
     prev = float(df["close"].iloc[-2])
     now = datetime.now()
-    # Friday after 15:30 IST or weekend -> use last weekly bar
     if (now.weekday() == 4 and now.time() >= time(15, 30)) or now.weekday() in (5, 6):
         return last, df.index[-1]
     else:
@@ -127,96 +126,25 @@ def fetch_daily(symbol: str, exchange: str = "NSE", bars: int = 60):
         return None
     if not {"open","high","low","close"}.issubset(df.columns):
         return None
-    df = df.dropna(subset=["open","high","low","close"])
-    return df
+    return df.dropna(subset=["open","high","low","close"])
 
 def get_atr_with_talib(daily_df, period=10):
-    highs  = daily_df["high"].values
-    lows   = daily_df["low"].values
-    closes = daily_df["close"].values
-    atr_array = ta.ATR(highs, lows, closes, timeperiod=period)
-    atr = atr_array[-1]
-    if np.isnan(atr):
-        return None
-    return float(atr)
+    atr_arr = ta.ATR(
+        daily_df["high"], daily_df["low"], daily_df["close"],
+        timeperiod=period
+    )
+    val = atr_arr.iloc[-1]
+    return None if np.isnan(val) else float(val)
 
 def price_cycles(close_price: float, steps):
-    res = []
-    sup = []
-    up = close_price
-    down = close_price
+    res, sup = [], []
+    up = down = close_price
     for s in steps:
         up += s
-        res.append(up)
         down -= s
+        res.append(up)
         sup.append(down)
     return res, sup
-
-# ---------- IMAGE TABLE FOR SR LEVELS ---------- #
-def create_sr_table_image(df_sr, symbol):
-    fig, ax = plt.subplots(figsize=(4, 6))
-    ax.axis('tight')
-    ax.axis('off')
-
-    table = ax.table(
-        cellText=df_sr.values,
-        colLabels=df_sr.columns,
-        cellLoc='center',
-        loc='center'
-    )
-
-    # Header style
-    for (row, col), cell in table.get_celld().items():
-        if row == 0:
-            cell.set_facecolor("#003366")
-            cell.set_text_props(color="white", weight="bold")
-        else:
-            lvl = df_sr.iloc[row-1, 0]
-            if lvl.startswith("R"):
-                cell.set_facecolor("#ffb380")
-            elif lvl == "Today Price":
-                cell.set_facecolor("#fff799")
-            elif lvl.startswith("S"):
-                cell.set_facecolor("#b3ffb3")
-
-    fig.tight_layout()
-    buf = BytesIO()
-    plt.savefig(buf, format="png", dpi=200, bbox_inches="tight")
-    buf.seek(0)
-    plt.close(fig)
-    return buf.getvalue()
-
-# ---------- PDF EXPORT FOR SR LEVELS ---------- #
-def create_pdf(levels, symbol):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=15)
-
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 10, f"{symbol} - Support and Resistance Levels", ln=True, align="C")
-    pdf.ln(5)
-
-    pdf.set_font("Arial", "B", 12)
-    pdf.set_fill_color(0, 51, 102)
-    pdf.set_text_color(255, 255, 255)
-    pdf.cell(50, 10, "Level", 1, 0, "C", True)
-    pdf.cell(60, 10, "Price", 1, 1, "C", True)
-
-    pdf.set_font("Arial", "", 12)
-    pdf.set_text_color(0, 0, 0)
-
-    for lvl, price in levels:
-        if lvl.startswith("R"):
-            pdf.set_fill_color(255, 179, 128)
-        elif lvl == "Today Price":
-            pdf.set_fill_color(255, 247, 153)
-        else:
-            pdf.set_fill_color(179, 255, 179)
-
-        pdf.cell(50, 10, lvl, 1, 0, "C", True)
-        pdf.cell(60, 10, f"{price:.2f}", 1, 1, "C", True)
-
-    return pdf.output(dest="S").encode("latin-1")
 
 # ------------------- APP LOGIC ------------------- #
 mode = st.radio("Mode:", ["Single Symbol", "Scan Universe (by ATR%)"])
@@ -225,79 +153,130 @@ mode = st.radio("Mode:", ["Single Symbol", "Scan Universe (by ATR%)"])
 #              SINGLE SYMBOL MODE
 # ==================================================
 if mode == "Single Symbol":
+
     symbol = st.selectbox("Select Symbol", SYMBOLS)
+
     weekly_close, wdate = get_weekly_close(symbol)
     if weekly_close is None:
-        st.error("⛔ Could not fetch weekly data for symbol: " + symbol)
+        st.error("⛔ Could not fetch weekly data.")
         st.stop()
 
-    daily_df = fetch_daily(symbol)
-    if daily_df is not None and not daily_df.empty:
-        last_close = float(daily_df["close"].iloc[-1])
-        last_ts = daily_df.index[-1]
-        atr = get_atr_with_talib(daily_df, period=10)
-    else:
-        st.error("⛔ Could not fetch daily data for symbol: " + symbol)
+    df_daily = fetch_daily(symbol)
+    if df_daily is None or df_daily.empty:
+        st.error("⛔ Could not fetch daily data.")
         st.stop()
 
-    # --- Header Info with styling ---
-    st.markdown(f"### **<span style='color:blue;'>{symbol}</span>**",
-                unsafe_allow_html=True)
-    st.markdown(f"**Weekly Close (used):** {weekly_close:.2f}  (bar date: {wdate.date()})")
-    st.markdown(f"**Last Daily Candle:** {last_ts}  **Last Close:** {last_close:.2f}")
+    last_close = float(df_daily["close"].iloc[-1])
+    last_ts = df_daily.index[-1]
+    atr = get_atr_with_talib(df_daily)
+
+    # --- Header Info ---
+    st.markdown(f"### <span style='color:blue; font-size:26px; font-weight:bold;'>{symbol}</span>", unsafe_allow_html=True)
+    st.markdown(f"<div style='font-size:18px;'>Weekly Close: <b>{weekly_close:.2f}</b> &nbsp;&nbsp; (Bar Date: {wdate.date()})</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='font-size:18px;'>Last Daily Candle: <b>{last_ts}</b> &nbsp;&nbsp; Last Close: <b>{last_close:.2f}</b></div>", unsafe_allow_html=True)
     if atr:
         atrp = (atr / last_close) * 100
-        st.markdown(f"**ATR(10):** {atr:.2f}    &nbsp;&nbsp;  **ATR%:** {atrp:.2f}%")
+        st.markdown(f"<div style='font-size:18px;'>ATR(10): <b>{atr:.2f}</b> &nbsp;&nbsp; ATR%: <b>{atrp:.2f}%</b></div>", unsafe_allow_html=True)
 
     st.markdown("---")
 
-    # Cycle-step selection (range presets)
+    # -------- Cycle Step Presets -------- #
     presets = {
         "Default 30-60-90-120-150": [30, 60, 90, 120, 150],
         "Short 3-6-9-12-15": [3, 6, 9, 12, 15],
-        "Long 300-600-900-1200-1500": [300, 600, 900, 1200, 1500],
         "Micro .3-.6-.9-1.2-1.5": [0.3, 0.6, 0.9, 1.2, 1.5],
+        "Long 300-600-900-1200-1500": [300, 600, 900, 1200, 1500],
         "Custom": None
     }
+
     choice = st.selectbox("Cycle Step Preset", list(presets.keys()))
+
     if choice == "Custom":
-        raw = st.text_input("Enter comma-separated steps (e.g. 25,50,75)", "30,60,90")
+        raw = st.text_input("Enter comma-separated steps", "30,60,90")
         try:
-            steps = [int(x.strip()) for x in raw.split(",") if x.strip()]
-        except Exception:
-            st.error("⚠ Invalid custom steps.")
+            steps = [float(x.strip()) for x in raw.split(",") if x.strip()]
+        except:
+            st.error("Invalid custom range")
             st.stop()
     else:
         steps = presets[choice]
 
-    # Compute price cycles based on WEEKLY CLOSE
-    res_levels, sup_levels = price_cycles(weekly_close, steps)
+    # -------------- Compute cycles -------------- #
+    R_raw, S_raw = price_cycles(weekly_close, steps)
 
-    # Build vertical SR list: R4..R1, Today Price, S1..S4
-    levels = []
-    for i, val in enumerate(reversed(res_levels), 1):
-        levels.append((f"R{i}", val))
-    levels.append(("Today Price", last_close))
-    for i, val in enumerate(sup_levels, 1):
-        levels.append((f"S{i}", val))
+    # Always keep 5 R and 5 S → OPTION A
+    R = R_raw[:5]
+    S = S_raw[:5]
 
-    df_sr = pd.DataFrame(levels, columns=["Level", "Price"])
+    # -------------- DYNAMIC RECLASSIFICATION -------------- #
+    new_R = []
+    new_S = []
 
-    # Create image of SR table
-    img_bytes = create_sr_table_image(df_sr, symbol)
+    # Resistances above last close stay R
+    # Those below last close convert to Support
+    for val in R:
+        if val > last_close:
+            new_R.append(val)
+        else:
+            new_S.append(val)
 
-    st.subheader("📌 Support & Resistance Levels (Image)")
-    st.image(img_bytes, use_column_width=False)
+    # Keep original S levels
+    for val in S:
+        new_S.append(val)
 
-    # CSV Download
-    csv_data = df_sr.to_csv(index=False)
+    # Ensure exactly 5 R and 5 S (Option A)
+    while len(new_R) < 5:
+        new_R.append(None)
+    new_R = new_R[:5]
+
+    while len(new_S) < 5:
+        new_S.append(None)
+    new_S = new_S[:5]
+
+    # -------------- DISPLAY STYLED TEXT (no table) -------------- #
+    st.markdown("## 🎯 Support & Resistance Levels")
+
+    # ---------------- RESISTANCE BLOCK ---------------- #
+    st.markdown("<div style='font-size:22px; color:#ff9933; font-weight:bold;'>🔶 Resistance Levels</div>", unsafe_allow_html=True)
+
+    for i, val in enumerate(new_R, 1):
+        txt = f"R{i}: {val:.2f}" if val else f"R{i}: ---"
+        st.markdown(f"<div style='font-size:20px; color:#ffb366;'>{txt}</div>", unsafe_allow_html=True)
+
+    # ---------------- TODAY PRICE ---------------- #
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(f"<div style='font-size:22px; background:#fff799; padding:6px; width:220px; border-radius:6px;'><b>Today Price: {last_close:.2f}</b></div>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ---------------- SUPPORT BLOCK ---------------- #
+    st.markdown("<div style='font-size:22px; color:#33cc33; font-weight:bold;'>🟢 Support Levels</div>", unsafe_allow_html=True)
+
+    for i, val in enumerate(new_S, 1):
+        txt = f"S{i}: {val:.2f}" if val else f"S{i}: ---"
+        st.markdown(f"<div style='font-size:20px; color:#99ff99;'>{txt}</div>", unsafe_allow_html=True)
+
+    # ------- CSV Export ------- #
+    df_export = pd.DataFrame({
+        "Level": [f"R{i}" for i in range(1,6)] + ["Today Price"] + [f"S{i}" for i in range(1,6)],
+        "Price": new_R + [last_close] + new_S
+    })
+    csv_data = df_export.to_csv(index=False)
     st.download_button("📥 Download SR Levels CSV",
                        data=csv_data,
                        file_name=f"{symbol}_SR_levels.csv",
                        mime="text/csv")
 
-    # PDF Download
-    pdf_bytes = create_pdf(levels, symbol)
+    # ------- PDF Export ------- #
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    pdf.cell(0, 10, f"{symbol} - Support & Resistance Levels", ln=True, align="C")
+
+    for lvl, val in zip(df_export["Level"], df_export["Price"]):
+        pdf.cell(50, 10, lvl, 1, 0)
+        pdf.cell(40, 10, f"{val:.2f}", 1, 1)
+
+    pdf_bytes = pdf.output(dest="S").encode("latin-1")
     st.download_button("📥 Download SR Levels PDF",
                        data=pdf_bytes,
                        file_name=f"{symbol}_SR_levels.pdf",
@@ -310,34 +289,28 @@ else:
     st.write("## 🔍 ATR% Scan — High Volatility Stocks")
 
     period = st.number_input("ATR lookback (days)", min_value=5, max_value=60, value=10, step=1)
-    top_n = st.number_input("Top N volatile stocks to show",
-                            min_value=5, max_value=len(SYMBOLS), value=20, step=5)
+    top_n = st.number_input("Top N volatile stocks", min_value=5, max_value=len(SYMBOLS), value=20, step=5)
 
     results = []
     for s in SYMBOLS:
         df = fetch_daily(s)
-        if df is None or df.shape[0] < period + 5:
-            continue
+        if df is None: continue
         try:
-            last_close = float(df["close"].iloc[-1])
-            atr = get_atr_with_talib(df, period=period)
-            if atr is None or np.isnan(atr):
-                continue
-            atrp = (atr / last_close) * 100
-            results.append((s, last_close, atr, atrp))
-        except Exception:
-            continue
+            lc = float(df["close"].iloc[-1])
+            atr = get_atr_with_talib(df, period)
+            if atr:
+                results.append((s, lc, atr, (atr/lc)*100))
+        except:
+            pass
 
     if results:
-        df_scan = pd.DataFrame(results, columns=["Symbol", "Last Close", "ATR", "ATR%"])
-        df_scan = df_scan.sort_values("ATR%", ascending=False).head(top_n).reset_index(drop=True)
-        st.subheader(f"Top {top_n} Symbols by ATR%")
+        df_scan = pd.DataFrame(results, columns=["Symbol","Last Close","ATR","ATR%"])
+        df_scan = df_scan.sort_values("ATR%", ascending=False).head(top_n)
         st.dataframe(df_scan, use_container_width=True)
 
-        csv = df_scan.to_csv(index=False)
-        st.download_button("Download ATR% Scan CSV",
-                           data=csv,
-                           file_name="atr_percent_scan.csv",
-                           mime="text/csv")
+        st.download_button("Download ATR Scan CSV",
+                           df_scan.to_csv(index=False),
+                           "ATR_scan.csv",
+                           "text/csv")
     else:
-        st.write("No symbols met criteria (data unavailable or insufficient history).")
+        st.write("No data available.")
