@@ -36,12 +36,19 @@ def get_weekly_close_safe(ticker: str) -> float | None:
         df = yf.download(ticker, period="2y", interval="1wk", progress=False)
     except Exception as e:
         return None
-    if df is None or df.empty or "Close" not in df.columns:
+
+    if df is None or df.empty:
         return None
+
+    # Standard yfinance with auto_adjust=True may only give Open/High/Low/Close/Volume
+    # so column "Close" must exist — check that
+    if "Close" not in df.columns:
+        # no close price → can't compute weekly close
+        return None
+
     df = df.rename(columns={"Close": "close"})
     df = df.dropna(subset=["close"])
 
-    # If less than 2 weeks data — abort
     if len(df) < 2:
         return None
 
@@ -50,11 +57,10 @@ def get_weekly_close_safe(ticker: str) -> float | None:
 
     now = datetime.now()
 
-    # Determine which close to use
     if (now.weekday() == 4 and now.time() >= time(15, 30)) or now.weekday() in [5, 6]:
         return float(last_close)
-    # Monday before 9:00 AM, or Tue–Thu or Fri before 15:30
     return float(prev_close)
+
 
 
 # ------------------ PRICE CYCLE CALC ------------------ #
