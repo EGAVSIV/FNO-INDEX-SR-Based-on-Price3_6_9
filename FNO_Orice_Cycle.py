@@ -222,15 +222,15 @@ else:
             
         except Exception:
             continue
-if results:
-    df_scan = pd.DataFrame(results, columns=["Symbol", "Last Close", "ATR", "ATR%"])
-    df_scan = df_scan.sort_values("ATR%", ascending=False).head(top_n).reset_index(drop=True)
-    st.subheader(f"Top {top_n} Symbols by ATR%")
-    st.dataframe(df_scan)
-    csv = df_scan.to_csv(index=False)
-    st.download_button("Download ATR% Scan CSV", data=csv,
+    if results:
+        df_scan = pd.DataFrame(results, columns=["Symbol", "Last Close", "ATR", "ATR%"])
+        df_scan = df_scan.sort_values("ATR%", ascending=False).head(top_n).reset_index(drop=True)
+        st.subheader(f"Top {top_n} Symbols by ATR%")
+        st.dataframe(df_scan)
+        csv = df_scan.to_csv(index=False)
+        st.download_button("Download ATR% Scan CSV", data=csv,
                        file_name="atr_percent_scan.csv", mime="text/csv")
-else:
-    st.write("No symbols met criteria (data unavailable or insufficient history).")
+    else:
+        st.write("No symbols met criteria (data unavailable or insufficient history).")
 
 
