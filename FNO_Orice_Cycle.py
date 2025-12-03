@@ -153,7 +153,7 @@ if mode == "Single Symbol":
     daily_df = fetch_daily(symbol)
     if daily_df is not None:
         last_close = float(daily_df["close"].iloc[-1])
-        atr = compute_atr(daily_df, period=10)
+        atr = get_atr_with_talib(daily_df, period=10)
     else:
         last_close = None
         atr = None
